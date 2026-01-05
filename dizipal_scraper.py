@@ -3,16 +3,25 @@ import ssl
 import cloudscraper
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
+import urllib3
+
+# SSL UYARILARINI KAPAT
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 BASE_DOMAIN = "https://dizipal1224.com"
 START_URLS = [
-    f"{BASE_DOMAIN}/tur/aksiyon?yil=2025",
+    f"{BASE_DOMAIN}/tur/aksiyon?yil=2025"
 ]
 
 OUTPUT_FILE = "output.m3u"
 
 class DizipalScraper:
     def __init__(self):
+        # SSL CONTEXT ZORLA
+        self.ssl_context = ssl.create_default_context()
+        self.ssl_context.check_hostname = False
+        self.ssl_context.verify_mode = ssl.CERT_NONE
+
         self.scraper = cloudscraper.create_scraper(
             browser={
                 "browser": "chrome",
@@ -21,25 +30,22 @@ class DizipalScraper:
             }
         )
 
-        # SSL sorunlarını bypass et
-        self.scraper.verify = False
-        ssl._create_default_https_context = ssl._create_unverified_context
-
         self.headers = {
-            "User-Agent": "Mozilla/5.0",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
             "Accept": "*/*",
             "Referer": BASE_DOMAIN,
-            "Host": BASE_DOMAIN.replace("https://", "")
+            "Origin": BASE_DOMAIN
         }
 
-        self.m3u_lines = ["#EXTM3U"]
+        self.m3u = ["#EXTM3U"]
 
     def fetch(self, url):
         print(f"🌐 Sayfa: {url}")
         r = self.scraper.get(
             url,
             headers=self.headers,
-            timeout=20
+            timeout=25,
+            verify=False
         )
         r.raise_for_status()
         return r.text
@@ -52,9 +58,8 @@ class DizipalScraper:
         return None
 
     def find_m3u8(self, html):
-        # Direkt m3u8 araması
-        m3u8 = re.findall(r"https?://[^\s'\"]+\.m3u8", html)
-        return m3u8[0] if m3u8 else None
+        match = re.search(r"https?://[^\s'\"]+\.m3u8", html)
+        return match.group(0) if match else None
 
     def crawl(self):
         for url in START_URLS:
@@ -62,14 +67,14 @@ class DizipalScraper:
             soup = BeautifulSoup(html, "html.parser")
 
             links = []
-            for a in soup.select("a"):
-                href = a.get("href")
-                if href and "/dizi/" in href:
+            for a in soup.select("a[href]"):
+                href = a["href"]
+                if "/dizi/" in href:
                     links.append(urljoin(BASE_DOMAIN, href))
 
             print(f"🔗 Bulunan içerik: {len(links)}")
 
-            for link in links[:10]:  # ilk 10
+            for link in links[:10]:
                 try:
                     page_html = self.fetch(link)
 
@@ -84,22 +89,23 @@ class DizipalScraper:
                     if not m3u8:
                         continue
 
-                    title = BeautifulSoup(page_html, "html.parser").title.text.strip()
+                    title_tag = BeautifulSoup(page_html, "html.parser").title
+                    title = title_tag.text.strip() if title_tag else "Dizipal"
 
-                    self.m3u_lines.append(f"#EXTINF:-1,{title}")
-                    self.m3u_lines.append(m3u8)
+                    self.m3u.append(f"#EXTINF:-1,{title}")
+                    self.m3u.append(m3u8)
 
-                    print(f"✅ M3U8 bulundu")
+                    print("✅ M3U8 bulundu")
 
                 except Exception as e:
-                    print(f"❌ Hata: {e}")
+                    print(f"❌ Hata atlandı: {e}")
 
         self.save()
 
     def save(self):
         with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
-            f.write("\n".join(self.m3u_lines))
-        print(f"\n📁 KAYDEDİLDİ: {OUTPUT_FILE}")
+            f.write("\n".join(self.m3u))
+        print(f"\n📁 ÇIKTI OLUŞTU: {OUTPUT_FILE}")
 
 if __name__ == "__main__":
     DizipalScraper().crawl()

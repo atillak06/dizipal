@@ -6,11 +6,25 @@ import requests
 import re
 import time
 import socket
-import urllib3
+import ssl
 from urllib.parse import urljoin, urlparse
 from bs4 import BeautifulSoup
+from requests.adapters import HTTPAdapter
+from urllib3.poolmanager import PoolManager
 
-urllib3.disable_warnings()
+# -------------------------------------------------
+# SSL / DNS / CERT BYPASS (Python 3.10+ FIX)
+# -------------------------------------------------
+
+class SSLAdapter(HTTPAdapter):
+    def init_poolmanager(self, *args, **kwargs):
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        kwargs["ssl_context"] = ctx
+        return super().init_poolmanager(*args, **kwargs)
+
+# -------------------------------------------------
 
 class DizipalScraper:
 
@@ -23,6 +37,9 @@ class DizipalScraper:
         print(f"🌐 IP     : {self.base_ip}")
 
         self.scraper = cloudscraper.create_scraper()
+        self.scraper.mount("https://", SSLAdapter())
+        self.scraper.mount("http://", SSLAdapter())
+
         self.headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
             "Accept": "*/*",
@@ -33,13 +50,14 @@ class DizipalScraper:
 
         self.years = list(range(2025, 1959, -1))
 
+        # TEST İÇİN AZ TUTTUM – İSTERSEN ARTIR
         self.film_turleri = {
             "aksiyon": "aksiyon",
             "korku": "korku",
             "komedi": "komedi"
         }
 
-    # --------------------------------------------------
+    # -------------------------------------------------
 
     def get_current_domain(self):
         try:
@@ -50,7 +68,7 @@ class DizipalScraper:
                     return line.split("=", 1)[1].strip().rstrip("/")
         except:
             pass
-        return "https://dizipal1530.com"
+        return "https://dizipal1224.com"
 
     def resolve_ip(self, domain):
         try:
@@ -58,10 +76,11 @@ class DizipalScraper:
         except:
             return None
 
+    # -------------------------------------------------
+    # DNS BYPASS FETCH
+    # -------------------------------------------------
+
     def fetch(self, url):
-        """
-        DNS BYPASS EDEREK SAYFA ÇEKER
-        """
         parsed = urlparse(url)
         ip_url = f"https://{self.base_ip}{parsed.path}"
         if parsed.query:
@@ -70,12 +89,13 @@ class DizipalScraper:
         r = self.scraper.get(
             ip_url,
             headers=self.headers,
-            timeout=25,
-            verify=False
+            timeout=25
         )
         return r.text if r.status_code == 200 else ""
 
-    # --------------------------------------------------
+    # -------------------------------------------------
+    # IFRAME → M3U8
+    # -------------------------------------------------
 
     def extract_m3u8_from_iframe(self, film_html):
         soup = BeautifulSoup(film_html, "html.parser")
@@ -84,7 +104,6 @@ class DizipalScraper:
             return None
 
         iframe_url = iframe["src"]
-
         if iframe_url.startswith("//"):
             iframe_url = "https:" + iframe_url
 
@@ -104,19 +123,19 @@ class DizipalScraper:
         r = self.scraper.get(
             iframe_ip_url,
             headers=iframe_headers,
-            timeout=25,
-            verify=False
+            timeout=25
         )
 
         html = r.text
-
         m3u8 = re.findall(r'https?://[^"\']+\.m3u8[^"\']*', html)
         return m3u8[0] if m3u8 else None
 
-    # --------------------------------------------------
+    # -------------------------------------------------
+    # MAIN
+    # -------------------------------------------------
 
     def crawl(self):
-        m3u = ['#EXTM3U']
+        m3u = ["#EXTM3U"]
 
         for tur, slug in self.film_turleri.items():
             print(f"\n🎬 {tur.upper()}")
@@ -124,8 +143,10 @@ class DizipalScraper:
             for year in self.years:
                 url = f"{self.base_url}/tur/{slug}?yil={year}"
                 html = self.fetch(url)
-                soup = BeautifulSoup(html, "html.parser")
+                if not html:
+                    break
 
+                soup = BeautifulSoup(html, "html.parser")
                 films = soup.select("article.type2 ul li a[href*='/film/']")
                 if not films:
                     break
@@ -162,7 +183,7 @@ class DizipalScraper:
 
         print("\n✅ TAMAMLANDI → dizipal_filmler.m3u")
 
-# --------------------------------------------------
+# -------------------------------------------------
 
 if __name__ == "__main__":
     DizipalScraper().crawl()

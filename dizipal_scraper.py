@@ -66,7 +66,7 @@ class DizipalScraper:
                         return domain.rstrip('/')
         except:
             pass
-        return "https://dizipal1222.com"
+        return "https://dizipal1224.com"
 
     def crawl_film_category_correct(self, tur_name, tur_slug):
         """DOĞRU ŞEKİLDE: Film kategorisini tüm yıllar için çek"""
